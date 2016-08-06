@@ -1,14 +1,12 @@
 "use strict";
 
 var utils  = require("../../../lib/connect-utils");
+var bs     = require("../../../");
+var req    = require("supertest");
 var merge  = require("../../../lib/cli/cli-options").merge;
 var assert = require("chai").assert;
 
-// server,proxy: ['' + location.host + '/browser-sync']
-// snippet:      ['http://' + location.hostname + ':3000/browser-sync']
-// domain:       ['<domain>/browser-sync']
-
-describe("Connection utils", function () {
+describe("Connection snippetUtils", function () {
     var options;
     beforeEach(function () {
         options = merge({
@@ -94,7 +92,7 @@ describe("Connection utils", function () {
             }
         });
         var actual   = utils.socketConnector(options);
-        assert.include(actual, "___browserSync___.io('localhost:3000/browser-sync', ___browserSync___.socketConfig);");
+        assert.include(actual, "___browserSync___.url = 'localhost:3000/browser-sync';");
     });
     it("should allow setting of the socket domain + namespace", function () {
         var options = merge({
@@ -107,7 +105,7 @@ describe("Connection utils", function () {
             }
         });
         var actual   = utils.socketConnector(options);
-        assert.include(actual, "___browserSync___.io('localhost:3000/shane', ___browserSync___.socketConfig);");
+        assert.include(actual, "___browserSync___.url = 'localhost:3000/shane';");
     });
     it("should allow setting of the socket domain (fn)+ namespace", function () {
         var options = merge({
@@ -125,7 +123,7 @@ describe("Connection utils", function () {
             }
         });
         var actual   = utils.socketConnector(options);
-        assert.include(actual, "___browserSync___.io('http://localhost:3002/shane', ___browserSync___.socketConfig);");
+        assert.include(actual, "___browserSync___.url = 'http://localhost:3002/shane';");
     });
     it("should allow setting of the socket namespace with fn (back compat)", function () {
         var options = merge({
@@ -142,6 +140,108 @@ describe("Connection utils", function () {
             }
         });
         var actual   = utils.socketConnector(options);
-        assert.include(actual, "___browserSync___.io('' + location.host + '/browser-sync', ___browserSync___.socketConfig);");
+        assert.include(actual, "___browserSync___.url = '' + location.host + '/browser-sync';");
+    });
+    it("E2E Should allow setting of socket.domain + script.domain as strings", function (done) {
+        bs.reset();
+        bs.create().init({
+            ui: false,
+            logLevel: "silent",
+            script: {
+                domain: "http://localhost:3000"
+            },
+            socket: {
+                domain: "http://localhost:3000"
+            }
+        }, function (err, bs) {
+
+            assert.include(bs.options.get("snippet"), "<script async id=\"__bs_script__\" src=\"http://localhost:3000/browser-sync");
+
+            var expected = "___browserSync___.url = 'http://localhost:3000/browser-sync'";
+
+            req(bs.server)
+                .get(bs.options.getIn(["scriptPaths", "path"]))
+                .expect(200)
+                .end(function (err, res) {
+                    assert.include(res.text, expected, "Socket domain updated in response");
+                    bs.cleanup();
+                    done();
+                });
+        });
+    });
+    it("E2E Should allow setting of socket.domain + script.domain as strings when using --localOnly flag", function (done) {
+        bs.reset();
+        bs.create().init({
+            ui: false,
+            online: false,
+            logLevel: "silent",
+            localOnly: true
+        }, function (err, bs) {
+            var port = bs.options.get("port");
+            assert.include(bs.options.get("snippet"), "<script async id=\"__bs_script__\" src=\"http://localhost:" + port + "/browser-sync");
+
+            var expected = "___browserSync___.url = 'http://localhost:" + port + "/browser-sync'";
+
+            req(bs.server)
+                .get(bs.options.getIn(["scriptPaths", "path"]))
+                .expect(200)
+                .end(function (err, res) {
+                    assert.include(res.text, expected, "Socket domain updated in response");
+                    bs.cleanup();
+                    done();
+                });
+        });
+    });
+    it("E2E Should allow setting of script.domain as functions", function (done) {
+        bs.reset();
+        bs.create().init({
+            ui: false,
+            logLevel: "silent",
+            script: {
+                domain: function (options) {
+                    return "http://mylocal:" + options.get("port");
+                }
+            }
+        }, function (err, bs) {
+            assert.include(bs.options.get("snippet"), "<script async id=\"__bs_script__\" src=\"http://mylocal:3000/browser-sync");
+            bs.cleanup();
+            done();
+        });
+    });
+    it("E2E Should allow setting of script.domain with placeholder", function (done) {
+        bs.reset();
+        bs.create().init({
+            ui: false,
+            logLevel: "silent",
+            script: {
+                domain: "http://localhost:{port}"
+            }
+        }, function (err, bs) {
+            assert.ok(bs.options.get("snippet").match(/http:\/\/localhost:\d{4,5}\/browser-sync/));
+            bs.cleanup();
+            done();
+        });
+    });
+    it("E2E Should allow setting of socket.domain with placeholder", function (done) {
+        bs.reset();
+        bs.create().init({
+            ui: false,
+            logLevel: "silent",
+            socket: {
+                domain: "http://localhost:{port}"
+            }
+        }, function (err, bs) {
+            var port = bs.options.get("port");
+            req(bs.server)
+                .get(bs.options.getIn(["scriptPaths", "path"]))
+                .expect(200)
+                .end(function (err, res) {
+
+                    var expected = "___browserSync___.url = 'http://localhost:" + port + "/browser-sync'";
+                    assert.include(res.text, expected);
+                    bs.cleanup();
+                    done();
+                });
+        });
     });
 });

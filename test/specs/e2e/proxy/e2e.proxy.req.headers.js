@@ -5,14 +5,12 @@ var testUtils       = require("../../../protractor/utils");
 var Immutable       = require("immutable");
 var request         = require("supertest");
 var assert          = require("chai").assert;
-var foxyPath        = require.resolve("foxy");
-var foxy            = require(foxyPath); // jshint ignore:line
 
 describe("E2E proxy test with custom req headers", function () {
 
     this.timeout(15000);
 
-    var bs, app, spy;
+    var bs, app;
 
     before(function (done) {
 
@@ -25,17 +23,19 @@ describe("E2E proxy test with custom req headers", function () {
         var config = {
             proxy: {
                 target: "https://localhost:" + app.server.address().port,
+                proxyOptions: {
+                    xfwd: true
+                },
                 reqHeaders: function () {
                     return {
-                        "accept": "text/html"
-                    };
+                        "is-dev": "yeah"
+                    }
                 }
             },
             open: false,
             logLevel: "silent"
         };
 
-        spy = require("sinon").spy(require.cache[foxyPath].exports, "create");
         bs = browserSync.init(config, done).instance;
     });
 
@@ -46,15 +46,27 @@ describe("E2E proxy test with custom req headers", function () {
 
     it("sets custom headers on proxy reqs", function (done) {
 
-        assert.isFunction(spy.getCall(0).args[1].reqHeaders); // check fn passed to foxy
-
-        spy.restore();
-
         var expected = app.html.replace("BS", bs.options.get("snippet") + "BS");
+        var headers;
+
+        app.app.stack.unshift({
+            route: "/index.html",
+            handle: function (req, res, next) {
+                headers = req.headers;
+                next();
+            }
+        });
 
         request(bs.options.getIn(["urls", "local"]))
             .get("/index.html")
             .set("accept", "text/html")
-            .expect(200, expected, done);
+            .expect(200)
+            .end(function (err, res) {
+                assert.equal(res.text, expected);
+                assert.ok(headers["is-dev"]);
+                assert.ok(headers["x-forwarded-port"]);
+                assert.ok(headers["x-forwarded-proto"]);
+                done();
+            });
     });
 });
